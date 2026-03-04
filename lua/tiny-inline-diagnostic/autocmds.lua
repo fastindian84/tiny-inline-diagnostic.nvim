@@ -6,6 +6,18 @@ local AUGROUP_NAME = "TinyInlineDiagnosticAutocmds"
 
 local attached_buffers = {}
 local last_cursor_positions = {}
+local buffer_autocmd_ids = {}
+
+---@param bufnr number
+---@param event string|string[]
+---@param opts table
+---@return number
+local function create_tracked_autocmd(bufnr, event, opts)
+  local id = vim.api.nvim_create_autocmd(event, opts)
+  buffer_autocmd_ids[bufnr] = buffer_autocmd_ids[bufnr] or {}
+  table.insert(buffer_autocmd_ids[bufnr], id)
+  return id
+end
 
 ---@param bufnr number
 ---@return boolean
@@ -21,6 +33,12 @@ function M.detach(bufnr, cleanup_callback)
   attached_buffers[bufnr] = nil
   last_cursor_positions[bufnr] = nil
   cache.clear(bufnr)
+  if buffer_autocmd_ids[bufnr] then
+    for _, id in ipairs(buffer_autocmd_ids[bufnr]) do
+      pcall(vim.api.nvim_del_autocmd, id)
+    end
+    buffer_autocmd_ids[bufnr] = nil
+  end
   if cleanup_callback then
     cleanup_callback(bufnr)
   end
@@ -35,7 +53,7 @@ function M.setup_cursor_autocmds(autocmd_ns, opts, bufnr, throttle_apply, direct
   local events = opts.options.enable_on_insert and { "CursorMoved", "CursorMovedI" }
     or { "CursorMoved" }
 
-  vim.api.nvim_create_autocmd(events, {
+  create_tracked_autocmd(bufnr, events, {
     group = autocmd_ns,
     buffer = bufnr,
     callback = function(event)
@@ -70,7 +88,7 @@ end
 ---@param bufnr number
 ---@param on_mode_change function
 function M.setup_mode_change_autocmds(autocmd_ns, bufnr, on_mode_change)
-  vim.api.nvim_create_autocmd("ModeChanged", {
+  create_tracked_autocmd(bufnr, "ModeChanged", {
     group = autocmd_ns,
     buffer = bufnr,
     callback = function(event)
@@ -107,7 +125,7 @@ function M.setup_buffer_autocmds(
 
   attached_buffers[bufnr] = true
 
-  vim.api.nvim_create_autocmd("DiagnosticChanged", {
+  create_tracked_autocmd(bufnr, "DiagnosticChanged", {
     group = autocmd_ns,
     buffer = bufnr,
     callback = function(args)
@@ -119,7 +137,7 @@ function M.setup_buffer_autocmds(
     end,
   })
 
-  vim.api.nvim_create_autocmd("LspDetach", {
+  create_tracked_autocmd(bufnr, "LspDetach", {
     group = autocmd_ns,
     buffer = bufnr,
     callback = function(event)
@@ -139,7 +157,7 @@ function M.setup_buffer_autocmds(
     end,
   })
 
-  vim.api.nvim_create_autocmd({ "BufDelete", "BufUnload", "BufWipeout" }, {
+  create_tracked_autocmd(bufnr, { "BufDelete", "BufUnload", "BufWipeout" }, {
     group = autocmd_ns,
     buffer = bufnr,
     callback = function(event)
@@ -147,7 +165,7 @@ function M.setup_buffer_autocmds(
     end,
   })
 
-  vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
+  create_tracked_autocmd(bufnr, { "VimResized", "WinResized" }, {
     group = autocmd_ns,
     callback = function()
       if vim.api.nvim_buf_is_valid(bufnr) then
@@ -160,7 +178,7 @@ function M.setup_buffer_autocmds(
   })
 
   if opts.options.experimental.use_window_local_extmarks then
-    vim.api.nvim_create_autocmd("WinEnter", {
+    create_tracked_autocmd(bufnr, "WinEnter", {
       group = autocmd_ns,
       callback = on_window_change,
       desc = "Sync namespace window on window change",
